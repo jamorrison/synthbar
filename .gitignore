@@ -29,6 +29,7 @@
 *.dylib
 
 # Executables
+synthbar
 *.exe
 *.out
 *.app
