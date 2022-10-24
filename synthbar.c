@@ -45,8 +45,8 @@ static inline double get_current_time() {
 typedef struct {
     char     *outfn;         /* name of output file */
     uint8_t   remove_linker; /* remove linker (1) or not (0) */
-    uint16_t  linker_length; /* number of bases in linker */
-    uint16_t  umi_length;    /* number of bases in UMI */
+    int16_t   linker_length; /* number of bases in linker */
+    int16_t   umi_length;    /* number of bases in UMI */
 } sb_conf_t;
 
 // Initialize config variables
@@ -81,8 +81,8 @@ static int usage(sb_conf_t *conf) {
     fprintf(stderr, "    -o, --output STR           name of output file [stdout]\n");
     fprintf(stderr, "Processing Options:\n");
     fprintf(stderr, "    -r, --remove-linker        remove linker from read [not removed]\n");
-    fprintf(stderr, "    -l, --linker-length INT    length of linker to remove [%u]\n", conf->linker_length);
-    fprintf(stderr, "    -u, --umi-length INT       length of UMI before linker [%u]\n", conf->umi_length);
+    fprintf(stderr, "    -l, --linker-length INT    length of linker to remove [%i]\n", conf->linker_length);
+    fprintf(stderr, "    -u, --umi-length INT       length of UMI before linker [%i]\n", conf->umi_length);
     fprintf(stderr, "    -h, --help                 print usage and exit\n");
     fprintf(stderr, "        --version              print version and exit\n");
     fprintf(stderr, "\n");
@@ -121,10 +121,10 @@ int main(int argc, char *argv[]) {
                 conf.remove_linker = 1;
                 break;
             case 'l':
-                conf.linker_length = (uint16_t)atoi(optarg);
+                conf.linker_length = (int16_t)atoi(optarg);
                 break;
             case 'u':
-                conf.umi_length = (uint16_t)atoi(optarg);
+                conf.umi_length = (int16_t)atoi(optarg);
                 break;
             case 'h':
                 usage(&conf);
@@ -146,13 +146,33 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Read file
-    gzFile  fh1 = gzopen(infn, "r");
-    FILE   *oh1 = strcmp(conf.outfn, "-")  == 0 ? stdout : fopen(conf.outfn, "w");
-    kseq_t *ks1 = kseq_init(fh1);
+    // Check linker and UMI lengths
+    if (conf.umi_length < 0 || conf.linker_length < 0) {
+        fprintf(stderr, "Linker (%i) and UMI (%i) lengths must both be <= 0\n", conf.linker_length, conf.umi_length);
 
-    uint16_t u_plus_l   = conf.umi_length + conf.linker_length;
-    uint32_t read_count = 0;
+        return 1;
+    }
+
+    // Init files and handle errors
+    gzFile  fh1 = gzopen(infn, "r");
+    if (!fh1) {
+        fprintf(stderr, "Could not open input file: %s\n", infn);
+
+        return 1;
+    }
+
+    FILE   *oh1 = strcmp(conf.outfn, "-")  == 0 ? stdout : fopen(conf.outfn, "w");
+    if (strcmp(conf.outfn, "-") != 0 && !oh1) {
+        fprintf(stderr, "Could not open output file: %s\n", conf.outfn);
+        gzclose(fh1);
+
+        return 1;
+    }
+
+
+    kseq_t   *ks1        = kseq_init(fh1);
+    int16_t   u_plus_l   = conf.umi_length + conf.linker_length;
+    uint32_t  read_count = 0;
 
     double t1 = get_current_time();
     while (kseq_read(ks1) >= 0) {
@@ -163,7 +183,7 @@ int main(int argc, char *argv[]) {
         if (conf.remove_linker) {
             // Handle error case, seq and qual should be same length, so only check seq
             if (ks1->seq.l < u_plus_l) {
-                fprintf(stderr, "Read shorter than UMI and linker lengths provided (%li<%u)\n", ks1->seq.l, u_plus_l);
+                fprintf(stderr, "Read shorter than UMI and linker lengths provided (%li<%i)\n", ks1->seq.l, u_plus_l);
                 kseq_destroy(ks1);
                 if (strcmp(conf.outfn, "-") != 0) { fclose(oh1); }
                 gzclose(fh1);
