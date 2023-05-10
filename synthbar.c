@@ -30,6 +30,8 @@
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
 
+#define SB_VERSION "1.0.0"
+
 // What the function name says!
 // Returns time in seconds
 static inline double get_current_time() {
@@ -44,9 +46,10 @@ static inline double get_current_time() {
 // Configuration variables
 typedef struct {
     char     *outfn;         /* name of output file */
+    char     *barcode;       /* barcode to add to each read */
     uint8_t   remove_linker; /* remove linker (1) or not (0) */
-    int16_t   linker_length; /* number of bases in linker */
-    int16_t   umi_length;    /* number of bases in UMI */
+    int32_t   linker_length; /* number of bases in linker */
+    int32_t   umi_length;    /* number of bases in UMI */
 } sb_conf_t;
 
 // Initialize config variables
@@ -54,6 +57,7 @@ sb_conf_t init_sb_conf() {
     sb_conf_t conf = {0};
 
     conf.outfn = (char *)"-";
+    conf.barcode = (char *)"CATATAC";
     conf.remove_linker = 0;
     conf.linker_length = 6;
     conf.umi_length    = 8;
@@ -64,7 +68,7 @@ sb_conf_t init_sb_conf() {
 // Print version of code
 static int print_version() {
     fprintf(stderr, "Program: synthbar\n");
-    fprintf(stderr, "Version: 1.0.0\n");
+    fprintf(stderr, "Version: %s\n", SB_VERSION);
     fprintf(stderr, "Contact: Jacob Morrison <jacob.morrison@vai.org>\n");
 
     return 0;
@@ -80,6 +84,7 @@ static int usage(sb_conf_t *conf) {
     fprintf(stderr, "Output options:\n");
     fprintf(stderr, "    -o, --output STR           name of output file [stdout]\n");
     fprintf(stderr, "Processing Options:\n");
+    fprintf(stderr, "    -b, --barcode STR          barcode to prepend to each read [%s]\n", conf->barcode);
     fprintf(stderr, "    -r, --remove-linker        remove linker from read [not removed]\n");
     fprintf(stderr, "    -l, --linker-length INT    length of linker to remove [%i]\n", conf->linker_length);
     fprintf(stderr, "    -u, --umi-length INT       length of UMI before linker [%i]\n", conf->umi_length);
@@ -99,6 +104,7 @@ int main(int argc, char *argv[]) {
 
     static const struct option loptions[] = {
         {"output"       , required_argument, NULL, 'o'},
+        {"barcode"      , required_argument, NULL, 'b'},
         {"remove-linker", no_argument      , NULL, 'r'},
         {"linker-length", required_argument, NULL, 'l'},
         {"umi-length"   , required_argument, NULL, 'u'},
@@ -112,19 +118,22 @@ int main(int argc, char *argv[]) {
         usage(&conf);
         return 0;
     }
-    while ((c = getopt_long(argc, argv, "l:o:u:hrz", loptions, NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "b:l:o:u:hrz", loptions, NULL)) >= 0) {
         switch (c) {
             case 'o':
                 conf.outfn = optarg;
+                break;
+            case 'b':
+                conf.barcode = optarg;
                 break;
             case 'r':
                 conf.remove_linker = 1;
                 break;
             case 'l':
-                conf.linker_length = (int16_t)atoi(optarg);
+                conf.linker_length = (int32_t)atoi(optarg);
                 break;
             case 'u':
-                conf.umi_length = (int16_t)atoi(optarg);
+                conf.umi_length = (int32_t)atoi(optarg);
                 break;
             case 'h':
                 usage(&conf);
@@ -169,16 +178,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Create qual string to add
+    size_t bc_len = strlen(conf.barcode);
+    char *pre_qual = malloc(bc_len + 1);
+    memset(pre_qual, 'I', bc_len);
+    pre_qual[bc_len] = '\0';
 
     kseq_t   *ks1        = kseq_init(fh1);
-    int16_t   u_plus_l   = conf.umi_length + conf.linker_length;
+    int32_t   u_plus_l   = conf.umi_length + conf.linker_length;
     uint32_t  read_count = 0;
 
     double t1 = get_current_time();
     while (kseq_read(ks1) >= 0) {
         read_count++;
 
-        fprintf(oh1, "%s %s\nCATATAC", ks1->name.s, ks1->comment.s);
+        fprintf(oh1, "%s %s\n%s", ks1->name.s, ks1->comment.s, conf.barcode);
 
         if (conf.remove_linker) {
             // Handle error case, seq and qual should be same length, so only check seq
@@ -192,18 +206,19 @@ int main(int argc, char *argv[]) {
             }
 
             fprintf(oh1, "%.*s", conf.umi_length, ks1->seq.s);
-            fprintf(oh1, "%s\n+\nIIIIIII", ks1->seq.s + u_plus_l);
+            fprintf(oh1, "%s\n+\n%s", ks1->seq.s + u_plus_l, pre_qual);
 
             fprintf(oh1, "%.*s", conf.umi_length, ks1->qual.s);
             fprintf(oh1, "%s\n", ks1->qual.s + u_plus_l);
         } else {
-            fprintf(oh1, "%s\n+\nIIIIIII%s\n", ks1->seq.s, ks1->qual.s);
+            fprintf(oh1, "%s\n+\n%s%s\n", ks1->seq.s, pre_qual, ks1->qual.s);
         }
     }
     double t2 = get_current_time();
 
     // Clean up
     kseq_destroy(ks1);
+    free(pre_qual);
     if (strcmp(conf.outfn, "-") != 0) { fclose(oh1); }
     gzclose(fh1);
 
