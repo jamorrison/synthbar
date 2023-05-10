@@ -16,15 +16,17 @@ plate based single cell protocols and even some bulk protocols) utilize a UMI wi
 For historical reasons, most tools for analyzing RNA-seq data with UMIs require a cell barcode before the UMI and can't
 handle reads without barcodes.
 
-To overcome this hurdle, `synthbar` prepends a 7-base cell barcode (CATATAC) to the sequence string of each read in the
-FASTQ, as well as a matching 7-base quality score (IIIIIII) in the quality string. If desired, the linker sequence can
-be removed as well, leaving just the barcode, UMI, and cDNA sequence.
+To overcome this hurdle, `synthbar` prepends a 7-base cell barcode (`CATATAC`) to the sequence string of each read in
+the FASTQ, as well as a matching 7-base quality score (`IIIIIII`) in the quality string. If the user would rather use a
+different barcode, the `--barcode` option allows for a user-defined barcode. In this case, a string of `I`'s of length
+equal to the requested barcode will be prepended to the quality string. If desired, the linker sequence can be removed
+as well, leaving just the barcode, UMI, and cDNA sequence.
 
-_Note 1: With respect to the plate based single cell protocols, individual cells are sorted into each well in a plate and
-then an index is added to distinguish cells for demultiplexing after sequencing (similar to distinguishing samples on
-your standard Illumina sequencer). In the case of bulk protocols, a "cell barcode" by itself doesn't make sense as there
-are many cells within the sample. However, even in bulk protocols, UMIs can serve a scientific purpose. In order to
-properly account for the UMIs in these protocols, they should be processed in a similar manner to the various single
+_Note 1: With respect to the plate based single cell protocols, individual cells are sorted into each well in a plate
+and then an index is added to distinguish cells for demultiplexing after sequencing (similar to distinguishing samples
+on your standard Illumina sequencer). In the case of bulk protocols, a "cell barcode" by itself doesn't make sense as
+there are many cells within the sample. However, even in bulk protocols, UMIs can serve a scientific purpose. In order
+to properly account for the UMIs in these protocols, they should be processed in a similar manner to the various single
 cell protocols with UMIs._
 
 ## Usage
@@ -35,6 +37,7 @@ Usage: synthbar [options] <FASTQ with UMIs>
 Output options:
     -o, --output STR           name of output file [stdout]
 Processing Options:
+    -b, --barcode STR          barcode to prepend to each read [CATATAC]
     -r, --remove-linker        remove linker from read [not removed]
     -l, --linker-length INT    length of linker to remove [6]
     -u, --umi-length INT       length of UMI before linker [8]
@@ -47,6 +50,7 @@ Note 1: Input FASTQ can be gzip compressed or uncompressed
 |       Option        |     Input      | Description |
 |:--------------------|:---------------|:------------|
 | -o, --output        | string         | name of output file (defaults to stdout), does not write gzip'd files     |
+| -b, --barcode       | string         | barcode to add instead of CATATAC (does not check if composed of ATCG's)  |
 | -r, --remove-linker | -              | remove linker sequence from read (not removed by default)                 |
 | -l, --linker-length | integer (>= 0) | length of linker to remove (default is 6), not used if `-r` not provided  |
 | -u, --umi-length    | integer (>= 0) | length of UMI before linker (default is 8), not used if `-r` not provided |
