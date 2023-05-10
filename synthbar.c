@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
 
     // Check linker and UMI lengths
     if (conf.umi_length < 0 || conf.linker_length < 0) {
-        fprintf(stderr, "Linker (%i) and UMI (%i) lengths must both be <= 0\n", conf.linker_length, conf.umi_length);
+        fprintf(stderr, "Linker (%i) and UMI (%i) lengths must both be >= 0\n", conf.linker_length, conf.umi_length);
 
         return 1;
     }
