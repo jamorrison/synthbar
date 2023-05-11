@@ -102,6 +102,7 @@ int main(int argc, char *argv[]) {
     sb_conf_t conf = init_sb_conf();
     int c;
 
+    // Command line arguments
     static const struct option loptions[] = {
         {"output"       , required_argument, NULL, 'o'},
         {"barcode"      , required_argument, NULL, 'b'},
@@ -118,6 +119,7 @@ int main(int argc, char *argv[]) {
         usage(&conf);
         return 0;
     }
+
     while ((c = getopt_long(argc, argv, "b:l:o:u:hrz", loptions, NULL)) >= 0) {
         switch (c) {
             case 'o':
@@ -158,36 +160,35 @@ int main(int argc, char *argv[]) {
     // Check linker and UMI lengths
     if (conf.umi_length < 0 || conf.linker_length < 0) {
         fprintf(stderr, "Linker (%i) and UMI (%i) lengths must both be >= 0\n", conf.linker_length, conf.umi_length);
-
         return 1;
     }
 
     // Init files and handle errors
-    gzFile  fh1 = gzopen(infn, "r");
+    gzFile fh1 = gzopen(infn, "r");
     if (!fh1) {
         fprintf(stderr, "Could not open input file: %s\n", infn);
-
         return 1;
     }
 
-    FILE   *oh1 = strcmp(conf.outfn, "-")  == 0 ? stdout : fopen(conf.outfn, "w");
+    FILE *oh1 = strcmp(conf.outfn, "-") == 0 ? stdout : fopen(conf.outfn, "w");
     if (strcmp(conf.outfn, "-") != 0 && !oh1) {
         fprintf(stderr, "Could not open output file: %s\n", conf.outfn);
         gzclose(fh1);
-
         return 1;
     }
 
     // Create qual string to add
-    size_t bc_len = strlen(conf.barcode);
-    char *pre_qual = malloc(bc_len + 1);
+    size_t  bc_len   = strlen(conf.barcode);
+    char   *pre_qual = malloc(bc_len + 1);
     memset(pre_qual, 'I', bc_len);
     pre_qual[bc_len] = '\0';
 
+    // Variable initialization
     kseq_t   *ks1        = kseq_init(fh1);
     int32_t   u_plus_l   = conf.umi_length + conf.linker_length;
     uint32_t  read_count = 0;
 
+    // Process reads
     double t1 = get_current_time();
     while (kseq_read(ks1) >= 0) {
         read_count++;
