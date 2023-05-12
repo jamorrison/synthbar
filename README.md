@@ -2,7 +2,7 @@
 
 ## tl;dr
 
-`synthbar` adds a synthetic cell barcode to the beginning of each read in a provided FASTQ.
+`synthbar` adds a synthetic cell barcode to each read in a provided FASTQ.
 
 ## Overview
 
@@ -38,6 +38,7 @@ Output options:
     -o, --output STR           name of output file [stdout]
 Processing Options:
     -b, --barcode STR          barcode to prepend to each read [CATATAC]
+    -U, --umi-first            add barcode to read after the UMI [off]
     -r, --remove-linker        remove linker from read [not removed]
     -l, --linker-length INT    length of linker to remove [6]
     -u, --umi-length INT       length of UMI before linker [8]
@@ -51,15 +52,32 @@ Note 1: Input FASTQ can be gzip compressed or uncompressed
 |:--------------------|:---------------|:------------|
 | -o, --output        | string         | name of output file (defaults to stdout), does not write gzip'd files     |
 | -b, --barcode       | string         | barcode to add instead of CATATAC (does not check if composed of ATCG's)  |
+| -U, --umi-first     | -              | place the barcode after the UMI in the new read                           |
 | -r, --remove-linker | -              | remove linker sequence from read (not removed by default)                 |
 | -l, --linker-length | integer (>= 0) | length of linker to remove (default is 6), not used if `-r` not provided  |
 | -u, --umi-length    | integer (>= 0) | length of UMI before linker (default is 8), not used if `-r` not provided |
 | -h, --help          | -              | print usage and exit                                                      |
 | --version           | -              | print version and exit                                                    |
 
+Note, for protocols with no linking sequence, it is suggested to ignore the linker-related options, as this will ensure
+everything is written after the UMI and eliminate the potential for inadvertently removing cDNA sequence.
+
+## Read Structure
+
+| In / Out | Linker? | UMI First? | Remove Linker? | Structure                                       |
+|:--------:|:-------:|:----------:|:--------------:|:------------------------------------------------|
+| Input    | Yes     | NA         | NA             | `( UMI ) + ( LINKER ) + ( cDNA )`               |
+| Input    | No      | NA         | NA             | `( UMI ) + ( cDNA )`                            |
+| Output   | Yes     | No         | No             | `( BARCODE ) + ( UMI ) + ( LINKER ) + ( cDNA )` |
+| Output   | Yes     | No         | Yes            | `( BARCODE ) + ( UMI ) + ( cDNA )`              |
+| Output   | Yes     | Yes        | No             | `( UMI ) + ( BARCODE ) + ( LINKER ) + ( cDNA )` |
+| Output   | Yes     | Yes        | Yes            | `( UMI ) + ( BARCODE ) + ( cDNA )`              |
+| Output   | No      | No         | No             | `( BARCODE ) + ( UMI ) + ( cDNA )`              |
+| Output   | No      | Yes        | No             | `( UMI ) + ( BARCODE ) + ( cDNA )`              |
+
 ## Acknowledgments
 
-  - `synthbar` uses the `klib` header file, `kseq.h` for effortlessly handling FASTQs.
+  - `synthbar` uses two utilities `klib`, `kseq` (for handling FASTQs) and `kstring` (for writing updated reads).
 
 ## Citation
 
