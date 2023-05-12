@@ -3,8 +3,11 @@ CFLAGS=-Wall -O2
 
 all: synthbar
 
-synthbar: synthbar.c kseq.h
-	$(CC) $(CFLAGS) synthbar.c -o $@ -lz
+synthbar: synthbar.c kstring.o
+	$(CC) $(CFLAGS) $^ -o $@ -lz
+
+kstring.o:
+	$(CC) -c $(FLAGS) kstring.c -o $@
 
 clean:
 	rm -rf synthbar *.o

@@ -27,10 +27,12 @@
 #include <sys/time.h>
 #include <zlib.h>
 
+#include "kstring.h"
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
 
-#define SB_VERSION "1.0.0"
+#define SB_VERSION "1.0.0" /* synthbar version */
+#define N_EXTRA_CHARS 7    /* 4 newlines + 1 space + 1 separator + 1 null-terminator */
 
 // What the function name says!
 // Returns time in seconds
@@ -47,6 +49,7 @@ static inline double get_current_time() {
 typedef struct {
     char     *outfn;         /* name of output file */
     char     *barcode;       /* barcode to add to each read */
+    uint8_t   umi_first;     /* print the UMI before the barcode in each read */
     uint8_t   remove_linker; /* remove linker (1) or not (0) */
     int32_t   linker_length; /* number of bases in linker */
     int32_t   umi_length;    /* number of bases in UMI */
@@ -56,8 +59,9 @@ typedef struct {
 sb_conf_t init_sb_conf() {
     sb_conf_t conf = {0};
 
-    conf.outfn = (char *)"-";
-    conf.barcode = (char *)"CATATAC";
+    conf.outfn         = (char *)"-";
+    conf.barcode       = (char *)"CATATAC";
+    conf.umi_first     = 0;
     conf.remove_linker = 0;
     conf.linker_length = 6;
     conf.umi_length    = 8;
@@ -85,6 +89,7 @@ static int usage(sb_conf_t *conf) {
     fprintf(stderr, "    -o, --output STR           name of output file [stdout]\n");
     fprintf(stderr, "Processing Options:\n");
     fprintf(stderr, "    -b, --barcode STR          barcode to prepend to each read [%s]\n", conf->barcode);
+    fprintf(stderr, "    -U, --umi-first            add barcode to read after the UMI [off]\n");
     fprintf(stderr, "    -r, --remove-linker        remove linker from read [not removed]\n");
     fprintf(stderr, "    -l, --linker-length INT    length of linker to remove [%i]\n", conf->linker_length);
     fprintf(stderr, "    -u, --umi-length INT       length of UMI before linker [%i]\n", conf->umi_length);
@@ -106,6 +111,7 @@ int main(int argc, char *argv[]) {
     static const struct option loptions[] = {
         {"output"       , required_argument, NULL, 'o'},
         {"barcode"      , required_argument, NULL, 'b'},
+        {"umi-first"    , no_argument      , NULL, 'U'},
         {"remove-linker", no_argument      , NULL, 'r'},
         {"linker-length", required_argument, NULL, 'l'},
         {"umi-length"   , required_argument, NULL, 'u'},
@@ -120,13 +126,16 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    while ((c = getopt_long(argc, argv, "b:l:o:u:hrz", loptions, NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "b:l:o:u:Uhrz", loptions, NULL)) >= 0) {
         switch (c) {
             case 'o':
                 conf.outfn = optarg;
                 break;
             case 'b':
                 conf.barcode = optarg;
+                break;
+            case 'U':
+                conf.umi_first = 1;
                 break;
             case 'r':
                 conf.remove_linker = 1;
@@ -184,40 +193,81 @@ int main(int argc, char *argv[]) {
     pre_qual[bc_len] = '\0';
 
     // Variable initialization
-    kseq_t   *ks1        = kseq_init(fh1);
-    int32_t   u_plus_l   = conf.umi_length + conf.linker_length;
-    uint32_t  read_count = 0;
+    int        ret_code   = 0;
+    kseq_t    *ks1        = kseq_init(fh1);
+    int32_t    u_plus_l   = conf.umi_length + conf.linker_length;
+    int32_t    link_start = conf.remove_linker ? u_plus_l : conf.umi_length;
+    uint32_t   read_count = 0;
+    kstring_t *str        = (kstring_t *)calloc(1, sizeof(kstring_t));
 
     // Process reads
     double t1 = get_current_time();
     while (kseq_read(ks1) >= 0) {
         read_count++;
 
-        fprintf(oh1, "%s %s\n%s", ks1->name.s, ks1->comment.s, conf.barcode);
-
-        if (conf.remove_linker) {
-            // Handle error case, seq and qual should be same length, so only check seq
-            if (ks1->seq.l < u_plus_l) {
-                fprintf(stderr, "Read shorter than UMI and linker lengths provided (%li<%i)\n", ks1->seq.l, u_plus_l);
-                kseq_destroy(ks1);
-                if (strcmp(conf.outfn, "-") != 0) { fclose(oh1); }
-                gzclose(fh1);
-
-                return 1;
-            }
-
-            fprintf(oh1, "%.*s", conf.umi_length, ks1->seq.s);
-            fprintf(oh1, "%s\n+\n%s", ks1->seq.s + u_plus_l, pre_qual);
-
-            fprintf(oh1, "%.*s", conf.umi_length, ks1->qual.s);
-            fprintf(oh1, "%s\n", ks1->qual.s + u_plus_l);
-        } else {
-            fprintf(oh1, "%s\n+\n%s%s\n", ks1->seq.s, pre_qual, ks1->qual.s);
+        // Handle error case of too short read, seq and qual should be same length, so only check seq
+        if (conf.remove_linker && ks1->seq.l < u_plus_l) {
+            fprintf(stderr, "Read shorter than UMI and linker lengths provided (%li < %i)\n", ks1->seq.l, u_plus_l);
+            ret_code = 1;
+            goto end;
         }
+
+        // Pre-allocate space, or expand space ahead of time to reduce the number of allocations needed
+        size_t str_len = ks1->name.l + ks1->comment.l + ks1->seq.l + ks1->qual.l + (size_t)N_EXTRA_CHARS;
+
+        if (str_len > str->m) {
+            int err = ks_resize(str, str_len);
+            if (err < 0) {
+                ret_code = 1;
+                fprintf(stderr, "Unable to reallocate sufficient space\n");
+                goto end;
+            }
+        }
+
+        // Read name
+        ksprintf(str, "%s", ks1->name.s);
+
+        // Read comment (if applicable)
+        if (ks1->comment.l > 0) {
+            ksprintf(str, " %s", ks1->comment.s);
+        }
+
+        // UMI and barcode (seq)
+        if (!conf.umi_first) {
+            ksprintf(str, "\n%s%.*s", conf.barcode, conf.umi_length, ks1->seq.s);
+        } else {
+            ksprintf(str, "\n%.*s%s", conf.umi_length, ks1->seq.s, conf.barcode);
+        }
+
+        // Linker (seq), sequence, and separator
+        ksprintf(str, "%s\n+\n", ks1->seq.s + link_start);
+
+        // UMI and barcode (qual)
+        if (!conf.umi_first) {
+            ksprintf(str, "%s%.*s", pre_qual, conf.umi_length, ks1->qual.s);
+        } else {
+            ksprintf(str, "%.*s%s", conf.umi_length, ks1->qual.s, pre_qual);
+        }
+
+        // Linker (qual) and quality
+        ksprintf(str, "%s\n", ks1->qual.s + link_start);
+
+        // Print out read
+        fprintf(oh1, "%s", str->s);
+
+        // Reset kstring for next read
+        str->s[0] = '\0';
+        str->l = 0;
     }
+
+    goto end;
+
+end:
     double t2 = get_current_time();
 
     // Clean up
+    free(str->s);
+    free(str);
     kseq_destroy(ks1);
     free(pre_qual);
     if (strcmp(conf.outfn, "-") != 0) { fclose(oh1); }
@@ -225,5 +275,5 @@ int main(int argc, char *argv[]) {
 
     fprintf(stderr, "[synthbar:%s] %u reads processed in %.3f seconds (wall time)\n", __func__, read_count, t2-t1);
 
-    return 0;
+    return ret_code;
 }
