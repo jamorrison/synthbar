@@ -4,6 +4,14 @@
 
 `synthbar` adds a synthetic cell barcode to each read in a provided FASTQ.
 
+## Install and Build
+
+```
+git clone git@github.com:jamorrison/synthbar.git
+cd synthbar
+make
+```
+
 ## Overview
 
 Most single cell RNA-seq protocols include a cell barcode at the beginning of each read to distinguish which cell the
@@ -48,8 +56,8 @@ Processing Options:
 Note 1: Input FASTQ can be gzip compressed or uncompressed
 ```
 
-|       Option        |     Input      | Description |
-|:--------------------|:---------------|:------------|
+|       Option        |     Input      | Description                                                               |
+|:--------------------|:---------------|:--------------------------------------------------------------------------|
 | -o, --output        | string         | name of output file (defaults to stdout), does not write gzip'd files     |
 | -b, --barcode       | string         | barcode to add instead of CATATAC (does not check if composed of ATCG's)  |
 | -U, --umi-first     | -              | place the barcode after the UMI in the new read                           |
@@ -77,7 +85,7 @@ everything is written after the UMI and eliminate the potential for inadvertentl
 
 ## Acknowledgments
 
-  - `synthbar` uses two utilities `klib`, `kseq` (for handling FASTQs) and `kstring` (for writing updated reads).
+  - `synthbar` uses two utilities from `klib`, `kseq` (for handling FASTQs) and `kstring` (for writing updated reads).
 
 ## Citation
 
