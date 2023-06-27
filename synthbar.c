@@ -225,7 +225,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Read name
-        ksprintf(str, "%s", ks1->name.s);
+        ksprintf(str, "@%s", ks1->name.s);
 
         // Read comment (if applicable)
         if (ks1->comment.l > 0) {
